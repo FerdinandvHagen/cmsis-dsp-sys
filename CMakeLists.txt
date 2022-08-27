@@ -13,7 +13,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_C_STANDARD 11)
 
 include_directories(
-  CMSIS/Core/Include
+  ../CMSIS/Core/Include
 )
 
 set(MCPU cortex-m7)
