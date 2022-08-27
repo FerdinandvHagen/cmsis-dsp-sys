@@ -4,6 +4,18 @@ use std::env;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
+#[derive(Debug)]
+enum Endian {
+    Big,
+    Little,
+}
+
+#[derive(Debug, PartialEq)]
+enum Core {
+    NotM7,
+    M7,
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=wrapper.h");
@@ -11,56 +23,54 @@ fn main() {
     let manifest = env::var("CARGO_MANIFEST_DIR").unwrap();
     let outdir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
-    let filepath = outdir.join("CMSIS.zip");
+    let cmsis_filepath = outdir.join("CMSIS.zip");
     {
-        let mut file = File::create(filepath.clone()).unwrap();
+        let mut file = File::create(cmsis_filepath.clone()).unwrap();
         blocking::get(
-            "https://github.com/ARM-software/CMSIS_5/releases/download/5.7.0/ARM.CMSIS.5.7.0.pack",
+            "https://github.com/ARM-software/CMSIS_5/releases/download/5.9.0/ARM.CMSIS.5.9.0.pack",
         )
-        .unwrap()
-        .copy_to(&mut file)
-        .unwrap();
+            .unwrap()
+            .copy_to(&mut file)
+            .unwrap();
     }
 
-    let file = File::open(filepath).unwrap();
+    let dsp_filepath = outdir.join("CMSIS-DSP.zip");
+    {
+        let mut file = File::create(dsp_filepath.clone()).unwrap();
+        blocking::get(
+            "https://github.com/ARM-software/CMSIS-DSP/releases/download/v1.10.1/ARM.CMSIS-DSP.1.10.1.pack",
+        )
+            .unwrap()
+            .copy_to(&mut file)
+            .unwrap();
+    }
 
+    let file = File::open(cmsis_filepath).unwrap();
     let mut archive = zip::ZipArchive::new(file).unwrap();
     archive.extract(outdir.join("CMSIS")).unwrap();
 
+    let file = File::open(dsp_filepath).unwrap();
+    let mut archive = zip::ZipArchive::new(file).unwrap();
+    archive.extract(outdir.join("CMSIS_DSP")).unwrap();
+
     let manifest_dir = Path::new(&manifest);
 
-    // * Here is the list of pre-built libraries :
-    // * - arm_cortexM7lfdp_math.lib (Cortex-M7, Little endian, Double Precision Floating Point Unit)
-    // * - arm_cortexM7lfsp_math.lib (Cortex-M7, Little endian, Single Precision Floating Point Unit)
-    // * - arm_cortexM7l_math.lib (Cortex-M7, Little endian)
-    // * - arm_cortexM4lf_math.lib (Cortex-M4, Little endian, Floating Point Unit)
-    // * - arm_cortexM4l_math.lib (Cortex-M4, Little endian)
-    // * - arm_cortexM3l_math.lib (Cortex-M3, Little endian)
-    // * - arm_cortexM0l_math.lib (Cortex-M0 / Cortex-M0+, Little endian)
-    // * - arm_ARMv8MBLl_math.lib (Armv8-M Baseline, Little endian)
-    // * - arm_ARMv8MMLl_math.lib (Armv8-M Mainline, Little endian)
-    // * - arm_ARMv8MMLlfsp_math.lib (Armv8-M Mainline, Little endian, Single Precision Floating Point Unit)
-    // * - arm_ARMv8MMLld_math.lib (Armv8-M Mainline, Little endian, DSP instructions)
-    // * - arm_ARMv8MMLldfsp_math.lib (Armv8-M Mainline, Little endian, DSP instructions, Single Precision Floating Point Unit)
-    let target = env::var("TARGET").unwrap();
-    let lib = match target.as_ref() {
-        //Bare Cortex-M0, M0+, M1
-        "thumbv6m-none-eabi" => "arm_cortexM0l_math",
-        //Bare Cortex-M3
-        "thumbv7m-none-eabi" => "arm_cortexM3l_math",
-        //Bare Cortex-M4, M7
-        "thumbv7em-none-eabi" => "arm_cortexM4l_math",
-        //Bare Cortex-M4F, M7F, FPU, hardfloat
-        "thumbv7em-none-eabihf" => "arm_cortexM4lf_math",
-        _ => panic!("no known arm math library for target {}", target),
-    };
+    // Copy over the CMakeLists.txt file
+    let input_path = manifest_dir.join("CMakeLists.txt");
+    let output_path = outdir.join("CMSIS_DSP").join("CMakeLists.txt");
+    let _ = std::fs::copy(input_path, output_path).unwrap();
 
-    // Link against prebuilt cmsis math
+    let dst = cmake::Config::new(outdir.join("CMSIS_DSP"))
+        .env("CMSIS_PATH", outdir.join("CMSIS").to_str().unwrap())
+        .always_configure(true)
+        .no_build_target(true)
+        .build();
+
     println!(
-        "cargo:rustc-link-search={}",
-        outdir.join("CMSIS/CMSIS/DSP/Lib/GCC").display()
+        "cargo:rustc-link-search=native={}",
+        dst.join("build").join("bin_dsp").display()
     );
-    println!("cargo:rustc-link-lib=static={}", lib);
+    println!("cargo:rustc-link-lib=static=CMSISDSP");
 
     let bb = builder()
         .header("wrapper.h")

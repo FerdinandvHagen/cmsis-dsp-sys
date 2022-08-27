@@ -22,3 +22,13 @@ reqwest = { version = "0.11.3", default-features = false, features = [
     "blocking",
     "default-tls"
 ] }
+cmake = "0.1.48"
+
+[features]
+# Target a Cortex-M7 core
+# If this feature is not enabled, the Cortex-M4 library will be used.
+cortex-m7 = []
+# Target a processor with a double-precision floating point unit (Cortex-M7 only)
+# If this feature is not enabled, the single-precision library will be used and double-precision floating point
+# operations will be emulated in software.
+double-precision-fpu = []
